@@ -1,0 +1,11 @@
+logdest: c:\data\code\testfolder\logs
+loglevel: INFO
+configs:
+  - name: Result Files
+    source_directory: c:\data\code\testfolder\tf1
+    destination: /path/to/destination1
+    delay: 10
+
+  - name: Log Files
+    source_directory: c:\data\code\testfolder\tf2
+    destination: /path/to/destination2
