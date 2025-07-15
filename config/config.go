@@ -18,9 +18,14 @@ type ConfigData struct {
 type ConfigEntry struct {
 	Name            string `yaml:"name"`
 	SourceDirectory string `yaml:"source_directory"`
-	Destination     string `yaml:"destination"`
+	RemotePath      string `yaml:"remotepath"`
 	Delay           *int   `yaml:"delay"`
 	Streaming       *bool  `yaml:"streaming"`
+	TransferType    string `yaml:"transfertype"`
+	Username        string `yaml:"username"`
+	Password        string `yaml:"password"`
+	Server          string `yaml:"server"`
+	Port            string `yaml:"port"`
 }
 
 func (c *ConfigData) SetDefaults() {

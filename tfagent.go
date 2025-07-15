@@ -14,6 +14,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/justin-molloy/tfagent/config"
 	"github.com/justin-molloy/tfagent/logdata"
+	"github.com/justin-molloy/tfagent/static"
 )
 
 var configFile string = "config.yaml"
@@ -89,7 +90,13 @@ func main() {
 
 				if now.Sub(t) > time.Duration(delaySec)*time.Second {
 					slog.Info("Processed after delay", "file", file)
-					delete(lastEvent, file)
+
+					err := static.UploadFile(file, cfg.Transfers)
+					if err != nil {
+						slog.Error(err.Error())
+					} else {
+						delete(lastEvent, file)
+					}
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
