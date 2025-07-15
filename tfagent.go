@@ -3,93 +3,59 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/goccy/go-yaml"
+	"github.com/justin-molloy/tfagent/config"
 	"github.com/justin-molloy/tfagent/logdata"
 )
 
 var configFile string = "config.yaml"
 
-type ConfigData struct {
-	LogDest  string        `yaml:"logdest"`
-	LogLevel string        `yaml:"loglevel"`
-	Configs  []ConfigEntry `yaml:"configs"`
-}
-
-type ConfigEntry struct {
-	Name            string `yaml:"name"`
-	SourceDirectory string `yaml:"source_directory"`
-	Destination     string `yaml:"destination"`
-	Delay           int    `yaml:"delay"`
-}
-
 func main() {
 
-	// Read yaml config into ConfigData
+	// read config
 
-	yamlConfig, err := os.ReadFile(configFile)
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
-		fmt.Println("Can't read configuration file!!")
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Configure logging
+
+	logFile, err := logdata.SetupLogger(filepath.Join(cfg.LogDest, "logfile.log"), slog.LevelInfo)
+	if err != nil {
 		panic(err)
 	}
 
-	var cfg ConfigData
-	if err := yaml.Unmarshal(yamlConfig, &cfg); err != nil {
-		log.Fatal(err)
-	}
+	defer logFile.Close()
 
-	// Configure logging and output config file to log
-
-	logFileName, fileHandle, err := logdata.ConfigLogger(cfg.LogDest)
-	if err != nil {
-		log.Fatalf("Error configuring logger: %v", err)
-	}
-
-	defer fileHandle.Close()
-	fmt.Println("Program started. Future log messages written to file:", logFileName)
-
-	prettyYaml, err := yaml.Marshal(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	logdata.Info(string(prettyYaml))
-
-	// start main routine
+	// Add source directories to watch from config
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		logdata.Error(err.Error())
+		slog.Error(err.Error())
 	}
 
 	defer watcher.Close()
 
-	//	for _, entry := range cfg.Configs {
-	//		fmt.Println("Name:", entry.Name)
-	//		fmt.Println("Source:", entry.SourceDirectory)
-	//		fmt.Println("Destination:", entry.Destination)
-	//		fmt.Println("Delay:", entry.Delay)
-	//		fmt.Println("---")
-	//	}
-
-	// Add source directories to watch from config
-
-	for _, entry := range cfg.Configs {
-		fmt.Println("Source:", entry.SourceDirectory)
-
+	for _, entry := range cfg.Transfers {
 		err = watcher.Add(entry.SourceDirectory)
 		if err != nil {
-			logdata.Error(err.Error())
+			slog.Error(err.Error())
 		} else {
-			logdata.Info("Added Source Dir" + entry.SourceDirectory)
+			slog.Info("Added Source Dir: ", "source", entry.SourceDirectory)
 		}
 	}
 
-	// Run function in background
+	// Main program loop - run function in background
+	lastEvent := make(map[string]time.Time)
 
 	go func() {
 		for {
@@ -98,17 +64,35 @@ func main() {
 				if !ok {
 					return
 				}
-				logdata.Info(fmt.Sprintf("%+v", event))
+				slog.Info("Filesystem event", "Op", event.Op, "Name", event.Name)
 
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					fmt.Println("Modified file:", event.Name)
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					lastEvent[event.Name] = time.Now()
 				}
+
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				logdata.Error(err.Error())
+				slog.Error(err.Error())
 			}
+		}
+	}()
+
+	// Polling loop to check for stable files
+
+	go func() {
+		for {
+			now := time.Now()
+			for file, t := range lastEvent {
+				delaySec := GetDelayForFile(file, cfg.Transfers, 2)
+
+				if now.Sub(t) > time.Duration(delaySec)*time.Second {
+					slog.Info("Processed after delay", "file", file)
+					delete(lastEvent, file)
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 
@@ -116,7 +100,30 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigs
-	logdata.Info("Program terminated by user: " + sig.String())
+	slog.Info("Program terminated by user", "signal", sig.String())
 	os.Exit(0)
 
+}
+
+func GetDelayForFile(filePath string, transfers []config.ConfigEntry, defaultDelay int) int {
+	fileAbs, err := filepath.Abs(filePath)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("Could not resolve absolute path for: %s", filePath))
+		return defaultDelay
+	}
+
+	for _, entry := range transfers {
+		dirAbs, err := filepath.Abs(entry.SourceDirectory)
+		if err != nil {
+			slog.Warn(fmt.Sprintf("Could not resolve absolute path for config entry: %s", entry.SourceDirectory))
+			continue
+		}
+
+		if strings.HasPrefix(fileAbs, dirAbs+string(os.PathSeparator)) || fileAbs == dirAbs {
+			return *entry.Delay
+		}
+	}
+
+	slog.Warn(fmt.Sprintf("No matching SourceDirectory found for file: %s. Using default delay.", filePath))
+	return defaultDelay
 }
