@@ -1,10 +1,16 @@
-logdest: c:\data\code\testfolder\logs
-loglevel: INFO
+logdest: c:\data\code\testfolder\logs\logfile.log
+loglevel: info
 transfers:
   - name: Result Files
     source_directory: c:\data\code\testfolder\tf1
-    destination: /path/to/destination1
     delay: 1
+    transfertype: ssh
+    username: tfuser
+    password: aZ7bL3qN
+    server: 192.168.214.128
+    port: 22
+    remotepath: incoming
+    streaming: false
 
   - name: Log Files
     source_directory: c:\data\code\testfolder\tf2

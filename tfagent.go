@@ -8,34 +8,49 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/justin-molloy/tfagent/config"
-	"github.com/justin-molloy/tfagent/logdata"
 	"github.com/justin-molloy/tfagent/static"
 )
 
-var configFile string = "config.yaml"
-
 func main() {
 
-	// read config
+	// Parse commandline flags
 
-	cfg, err := config.LoadConfig(configFile)
+	flags := config.ParseFlags()
+
+	// Load config
+
+	cfg, err := config.LoadConfig(flags.ConfigFile)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	// Override config with flags if different from defaults
+
+	if flags.LogFile != "logs/app.log" {
+		cfg.LogFile = flags.LogFile
+	}
+	if flags.LogLevel != "info" {
+		cfg.LogLevel = flags.LogLevel
+	}
+	if flags.LogToConsole {
+		cfg.LogToConsole = true
 	}
 
 	// Configure logging
 
-	logFile, err := logdata.SetupLogger(filepath.Join(cfg.LogDest, "logfile.log"), slog.LevelInfo)
+	logFile, err := config.SetupLogger(cfg.LogFile, cfg.LogLevel, cfg.LogToConsole)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to set up logger: %v", err)
 	}
-
-	defer logFile.Close()
+	if logFile != nil {
+		defer logFile.Close()
+	}
 
 	// Add source directories to watch from config
 
@@ -51,12 +66,13 @@ func main() {
 		if err != nil {
 			slog.Error(err.Error())
 		} else {
-			slog.Info("Added Source Dir: ", "source", entry.SourceDirectory)
+			slog.Info("Added Source Dir", "source", entry.SourceDirectory)
 		}
 	}
 
-	// Main program loop - run function in background
+	var processingSet sync.Map // safely tracks in-progress files
 	lastEvent := make(map[string]time.Time)
+	fileQueue := make(chan string, 100) // buffered to avoid blocking
 
 	go func() {
 		for {
@@ -89,17 +105,34 @@ func main() {
 				delaySec := GetDelayForFile(file, cfg.Transfers, 2)
 
 				if now.Sub(t) > time.Duration(delaySec)*time.Second {
-					slog.Info("Processed after delay", "file", file)
-
-					err := static.UploadFile(file, cfg.Transfers)
-					if err != nil {
-						slog.Error(err.Error())
+					// Avoid enqueueing if already processing
+					if _, alreadyProcessing := processingSet.Load(file); !alreadyProcessing {
+						processingSet.Store(file, true)
+						slog.Info("Queued file after delay", "file", file)
+						fileQueue <- file
 					} else {
-						delete(lastEvent, file)
+						slog.Debug("Skipped enqueue; already processing", "file", file)
 					}
+					delete(lastEvent, file)
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+
+	go func() {
+		for file := range fileQueue {
+			slog.Info("Processing file from queue", "file", file)
+
+			result, err := static.UploadFile(file, cfg.Transfers)
+			if err != nil {
+				slog.Error("Upload failed", "file", file, "error", err)
+			} else {
+				slog.Info("Upload complete", "file", file, "result", result)
+			}
+
+			// Mark file as no longer being processed
+			processingSet.Delete(file)
 		}
 	}()
 

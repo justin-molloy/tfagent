@@ -3,24 +3,20 @@ package static
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
-	//	"io"
-	"os"
-	//	"path"
-	"path/filepath"
-
-	//	"github.com/pkg/sftp"
-	//	"golang.org/x/crypto/ssh"
 	"github.com/justin-molloy/tfagent/config"
 )
 
 // UploadFile connects via SFTP and uploads a local file
-func UploadFile(filePath string, transfers []config.ConfigEntry) error {
-	fileAbs, err := filePath.Abs(filePath)
+func UploadFile(filePath string, transfers []config.ConfigEntry) (string, error) {
+
+	fileAbs, err := filepath.Abs(filePath)
 
 	if err != nil {
-		return fmt.Sprintf("Could not resolve absolute path for: %s", filePath), err
+		return "", fmt.Errorf("could not resolve absolute path for %s: %w", filePath, err)
 	}
 
 	for _, entry := range transfers {
@@ -31,11 +27,11 @@ func UploadFile(filePath string, transfers []config.ConfigEntry) error {
 		}
 
 		if strings.HasPrefix(fileAbs, dirAbs+string(os.PathSeparator)) || fileAbs == dirAbs {
-			fmt.Sprintf("Entry name is: %s", entry.Name)
+			slog.Info("Entry name", "name", entry.Name)
 		}
 	}
 
-	return nil
+	return "success", nil
 }
 
 /*
