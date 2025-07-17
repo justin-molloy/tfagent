@@ -2,34 +2,34 @@ package static
 
 import (
 	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/justin-molloy/tfagent/config"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 // UploadFile connects via SFTP and uploads a local file
-func UploadFile(filePath string, transfers []config.ConfigEntry) (string, error) {
+func UploadSFTP(filePath string, transfer config.ConfigEntry) (string, error) {
+	sshConfig := &ssh.ClientConfig{
+		User: transfer.Username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(transfer.Password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // NOTE: For testing only
+	}
 
-	fileAbs, err := filepath.Abs(filePath)
-
+	addr := fmt.Sprintf("%s:%s", transfer.Server, transfer.Port)
+	conn, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return "", fmt.Errorf("could not resolve absolute path for %s: %w", filePath, err)
+		return "", fmt.Errorf("failed to dial SSH: %w", err)
 	}
+	defer conn.Close()
 
-	for _, entry := range transfers {
-		dirAbs, err := filepath.Abs(entry.SourceDirectory)
-		if err != nil {
-			slog.Warn(fmt.Sprintf("Could not resolve absolute path for config entry: %s", entry.SourceDirectory))
-			continue
-		}
-
-		if strings.HasPrefix(fileAbs, dirAbs+string(os.PathSeparator)) || fileAbs == dirAbs {
-			slog.Info("Entry name", "name", entry.Name)
-		}
+	sftpClient, err := sftp.NewClient(conn)
+	if err != nil {
+		return "", fmt.Errorf("failed to create SFTP client: %w", err)
 	}
+	defer sftpClient.Close()
 
 	return "success", nil
 }
@@ -37,22 +37,7 @@ func UploadFile(filePath string, transfers []config.ConfigEntry) (string, error)
 /*
 
 func UploadFile(filePath string, transfers []config.ConfigEntry) error {
-	// 1. Create SSH config
-	sshConfig := &ssh.ClientConfig{
-		User: cfg.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(cfg.Password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // NOTE: For testing only
-	}
 
-	// 2. Dial SSH
-	addr := fmt.Sprintf("%s:%s", cfg.Server, cfg.Port)
-	conn, err := ssh.Dial("tcp", addr, sshConfig)
-	if err != nil {
-		return fmt.Errorf("failed to dial SSH: %w", err)
-	}
-	defer conn.Close()
 
 	// 3. Open SFTP session
 	sftpClient, err := sftp.NewClient(conn)

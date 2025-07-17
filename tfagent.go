@@ -124,14 +124,34 @@ func main() {
 		for file := range fileQueue {
 			slog.Info("Processing file from queue", "file", file)
 
-			result, err := static.UploadFile(file, cfg.Transfers)
+			transfer, err := FindMatchingTransfer(file, cfg.Transfers)
+			if err != nil {
+				slog.Warn("No matching transfer config found", "file", file, "error", err)
+				processingSet.Delete(file)
+				continue
+			}
+
+			var result string
+
+			switch transfer.TransferType {
+			case "sftp":
+				result, err = static.UploadSFTP(file, *transfer)
+			case "local":
+				slog.Warn("Local transfer not implemented", "file", file)
+				err = fmt.Errorf("local transfer not implemented")
+			case "scp":
+				slog.Warn("SCP transfer not implemented", "file", file)
+				err = fmt.Errorf("SCP transfer not implemented")
+			default:
+				err = fmt.Errorf("unsupported transfer type: %s", transfer.TransferType)
+			}
+
 			if err != nil {
 				slog.Error("Upload failed", "file", file, "error", err)
 			} else {
 				slog.Info("Upload complete", "file", file, "result", result)
 			}
 
-			// Mark file as no longer being processed
 			processingSet.Delete(file)
 		}
 	}()
@@ -166,4 +186,13 @@ func GetDelayForFile(filePath string, transfers []config.ConfigEntry, defaultDel
 
 	slog.Warn(fmt.Sprintf("No matching SourceDirectory found for file: %s. Using default delay.", filePath))
 	return defaultDelay
+}
+
+func FindMatchingTransfer(file string, transfers []config.ConfigEntry) (*config.ConfigEntry, error) {
+	for _, entry := range transfers {
+		if strings.HasPrefix(file, entry.SourceDirectory) {
+			return &entry, nil
+		}
+	}
+	return nil, fmt.Errorf("no matching config entry found for file: %s", file)
 }
