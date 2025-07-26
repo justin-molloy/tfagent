@@ -61,19 +61,19 @@ func TestHasDuplicate(t *testing.T) {
 	tracker := NewEventTracker()
 	testFile := "file.txt"
 
-	if tracker.HasDuplicate(testFile) {
+	if tracker.AlreadyExists(testFile) {
 		t.Errorf("Expected no duplicate, but got true")
 	}
 
 	tracker.RecordEvent(testFile)
 
-	if !tracker.HasDuplicate(testFile) {
+	if !tracker.AlreadyExists(testFile) {
 		t.Errorf("Expected duplicate, but got false")
 	}
 
 	tracker.Delete(testFile)
 
-	if tracker.HasDuplicate(testFile) {
+	if tracker.AlreadyExists(testFile) {
 		t.Errorf("Expected no duplicate after delete, but got true")
 	}
 }
