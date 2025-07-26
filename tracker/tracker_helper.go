@@ -1,4 +1,4 @@
-package watcher
+package tracker
 
 import (
 	"maps"
@@ -29,6 +29,7 @@ func (et *EventTracker) GetSnapshot() map[string]time.Time {
 
 	snapshot := make(map[string]time.Time, len(et.lastEvents))
 	maps.Copy(snapshot, et.lastEvents)
+
 	return snapshot
 }
 
@@ -36,4 +37,11 @@ func (et *EventTracker) Delete(name string) {
 	et.mu.Lock()
 	defer et.mu.Unlock()
 	delete(et.lastEvents, name)
+}
+
+func (et *EventTracker) AlreadyExists(name string) bool {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+	_, exists := et.lastEvents[name]
+	return exists
 }

@@ -9,12 +9,13 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/justin-molloy/tfagent/config"
 	"github.com/justin-molloy/tfagent/selector"
 	"github.com/justin-molloy/tfagent/static"
-	"github.com/justin-molloy/tfagent/watcher"
+	"github.com/justin-molloy/tfagent/tracker"
 )
 
 func main() {
@@ -44,7 +45,7 @@ func main() {
 		defer logFile.Close()
 	}
 
-	// 1. Create new filesystem watcher
+	// Create new filesystem event watcher
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -55,14 +56,16 @@ func main() {
 
 	// Set up our tracking maps so that events can be safely handled.
 	// tracker is a map that records all filesystem events that are generated
-	// from the fsnotify module. This map is passed to the selector below.
-	tracker := watcher.NewEventTracker()
+	// from watcher(fsnotify). This map is passed to the selector below.
+	// The tracker function also does some basic tests to ensure that the event
+	// is one we're interested in - eg. create/notify events, and that the file
+	// meets the filter criteria specified in the config.
 
-	// watcher is the filesystem event watcher
-	watcher.StartWatcher(w, tracker)
+	trackerMap := tracker.NewEventTracker()
 
-	// Add source directories (or files) to watch from config
+	// source directories from config are added to watcher
 
+	tracker.StartWatcher(&cfg, w, trackerMap)
 	for _, entry := range cfg.Transfers {
 		err = w.Add(entry.SourceDirectory)
 		if err != nil {
@@ -75,9 +78,19 @@ func main() {
 	// queue for files to be processed
 	fileQueue := make(chan string, 100) // buffered to avoid blocking
 
-	// Selector views events that have been added to the tracker map
+	// Selector views events that have been added to the tracker map, and
+	// moves them to the fileQueue when eligible.
+
 	processingSet := sync.Map{}
-	selector.StartSelector(cfg.Delay, tracker, fileQueue, &processingSet)
+
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			selector.ProcessSnapshot(&cfg, trackerMap, fileQueue, &processingSet)
+		}
+	}()
 
 	// Processing loop - read from the queue and process file.
 

@@ -6,48 +6,36 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justin-molloy/tfagent/config"
+	watcher "github.com/justin-molloy/tfagent/tracker"
 	"github.com/justin-molloy/tfagent/utils"
-	"github.com/justin-molloy/tfagent/watcher"
 )
-
-// StartSelector runs a background goroutine that periodically checks the event tracker
-// and queues files that have been stable for a specified delay.
-func StartSelector(
-	cfgDelay int,
-	tracker *watcher.EventTracker,
-	fileQueue chan<- string,
-	processingSet *sync.Map,
-) {
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			processSnapshot(cfgDelay, tracker, fileQueue, processingSet)
-		}
-	}()
-}
 
 // processSnapshot checks all tracked events and queues files that are ready for processing.
 // filters and transfer eligibility will be determined here as well, using values from the
 // transfer configuration.
 
-func processSnapshot(
-	cfgDelay int,
+func ProcessSnapshot(
+	cfg *config.ConfigData,
 	tracker *watcher.EventTracker,
 	fileQueue chan<- string,
 	processingSet *sync.Map,
 ) {
 	now := time.Now()
 	snapshot := tracker.GetSnapshot()
-	slog.Debug("Snapshot of lastEvents", "events", snapshot)
+
+	// TODO turn this one on only if snapshot isn't empty
+	//	if snapshot {
+	//		slog.Debug("Snapshot of lastEvents", "events", snapshot)
+	//	}
 
 	for file, t := range snapshot {
-		if !hasDelayElapsed(t, now, cfgDelay) {
+		if !hasDelayElapsed(t, now, cfg.Delay) {
 			continue
 		}
 
-		// utils are OS specific routines.
+		// utils are OS specific routines(just about everything else should work no matter
+		// which operating system it is run on, but these are filesystem operations.)
 
 		if !utils.CheckReadyForProcessing(file) {
 			continue
