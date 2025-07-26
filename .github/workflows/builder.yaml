@@ -3,9 +3,9 @@ name: initial-test-workflow
 
 on:
   push:
-    branches: [ "newdev" ]
+    branches: [ "main", "test" ]
   pull_request:
-    branches: [ "newdev" ]
+    branches: [ "main", "test" ]
 
 
 jobs:
