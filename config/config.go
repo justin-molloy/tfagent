@@ -15,6 +15,7 @@ type ConfigData struct {
 	LogFile      string        `yaml:"logdest"`
 	LogLevel     string        `yaml:"loglevel"`
 	LogToConsole bool          `yaml:"logtoconsole"`
+	Delay        int           `yaml:"delay"`
 	Transfers    []ConfigEntry `yaml:"transfers"`
 }
 
@@ -22,13 +23,16 @@ type ConfigEntry struct {
 	Name            string `yaml:"name"`
 	SourceDirectory string `yaml:"source_directory"`
 	RemotePath      string `yaml:"remotepath"`
-	Delay           *int   `yaml:"delay"`
 	Streaming       *bool  `yaml:"streaming"`
 	TransferType    string `yaml:"transfertype"`
 	Username        string `yaml:"username"`
+	PrivateKey      string `yaml:"privatekey"`
 	Password        string `yaml:"password"`
 	Server          string `yaml:"server"`
 	Port            string `yaml:"port"`
+	Filter          string `yaml:"filter"`
+	ArchiveDest     string `yaml:"archive_dest"`
+	ActionOnSuccess string `yaml:"action_on_success"`
 }
 
 type FlagOptions struct {
@@ -36,22 +40,23 @@ type FlagOptions struct {
 	ConfigFile   string
 	LogLevel     string
 	LogToConsole bool
+	PrtConf      bool
 }
 
-func (c *ConfigData) SetDefaults() {
-	defaultDelay := 2
-	defaultStreaming := false
-	for i := range c.Transfers {
-		if c.Transfers[i].Delay == nil {
-			slog.Warn("Default delay for " + c.Transfers[i].Name + " not set. Default is " + strconv.Itoa(defaultDelay))
-			c.Transfers[i].Delay = &defaultDelay
-		}
-		if c.Transfers[i].Streaming == nil {
-			slog.Warn("Streaming value for " + c.Transfers[i].Name + " not set. Default is " + strconv.FormatBool(defaultStreaming))
-			c.Transfers[i].Streaming = &defaultStreaming
-		}
+// ParseFlags sets some of the defaults for the program - eg config.yaml is expected to be in the
+// current directory by default.
 
-	}
+func ParseFlags() FlagOptions {
+	var flags FlagOptions
+
+	flag.StringVar(&flags.LogFile, "logfile", "logs/app.log", "Path to log file")
+	flag.StringVar(&flags.ConfigFile, "config", "config.yaml", "Path to config file. If this is not set, config is read from current directory")
+	flag.StringVar(&flags.LogLevel, "loglevel", "info", "Log level (debug, info, warn, error)")
+	flag.BoolVar(&flags.LogToConsole, "console", false, "Log to consle instead of file")
+	flag.BoolVar(&flags.PrtConf, "prtconf", false, "Print config and exit")
+
+	flag.Parse()
+	return flags
 }
 
 func LoadConfig(configFile string) (ConfigData, error) {
@@ -67,40 +72,47 @@ func LoadConfig(configFile string) (ConfigData, error) {
 		return ConfigData{}, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
-	// ensure all transfer entries have a value before returning.
-	cfg.SetDefaults()
+	// This section sets some default values for individual transfers.
+	// Here we ensure all transfer entries have a minimum value set before returning.
+
+	defaultStreaming := false
+	for i := range cfg.Transfers {
+		if cfg.Transfers[i].Streaming == nil {
+			slog.Warn("Streaming value for " + cfg.Transfers[i].Name + " not set. Default is " + strconv.FormatBool(defaultStreaming))
+			cfg.Transfers[i].Streaming = &defaultStreaming
+		}
+
+	}
 
 	return cfg, err
 }
 
-func ParseFlags() FlagOptions {
-	var flags FlagOptions
-
-	flag.StringVar(&flags.LogFile, "logfile", "logs/app.log", "Path to log file")
-	flag.StringVar(&flags.ConfigFile, "config", "config.yaml", "Path to config file. If this is not set, config is read from current directory")
-	flag.StringVar(&flags.LogLevel, "loglevel", "info", "Log level (debug, info, warn, error)")
-	flag.BoolVar(&flags.LogToConsole, "console", true, "Log to consle instead of file")
-
-	flag.Parse()
-	return flags
-}
-
-func SetupLogger(logFilePath string, level string, logToConsole bool) (*os.File, error) {
+func SetupLogger(cfg ConfigData, flags FlagOptions) (*os.File, error) {
 	var output *os.File
 	var err error
 
-	if !logToConsole {
-		output, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Override config with flags if different from defaults
+
+	if cfg.LogFile == "" {
+		cfg.LogFile = flags.LogFile
+	}
+	if flags.LogLevel != "info" {
+		cfg.LogLevel = flags.LogLevel
+	}
+	if flags.LogToConsole {
+		cfg.LogToConsole = true
+		output = os.Stdout
+	} else {
+		output, err = os.OpenFile(cfg.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		output = os.Stdout
 	}
 
 	// Convert log level string to slog.Level
+
 	var slogLevel slog.Level
-	switch strings.ToLower(level) {
+	switch strings.ToLower(cfg.LogLevel) {
 	case "debug":
 		slogLevel = slog.LevelDebug
 	case "info":
@@ -120,11 +132,16 @@ func SetupLogger(logFilePath string, level string, logToConsole bool) (*os.File,
 	slog.SetDefault(logger)
 
 	// Return nil for file if we're using stdout
-	if logToConsole {
+	if cfg.LogToConsole {
 		slog.Info("Program started. Log messages output to stdout.")
 		return nil, nil
 	}
 
-	slog.Info("Program started. Future log messages will be written here.", "path", logFilePath)
+	slog.Info("Program started. Future log messages will be written here.", "path", cfg.LogFile)
 	return output, nil
+}
+
+func PrintConfig(cfg ConfigData) {
+	yamlData, _ := yaml.Marshal(cfg)
+	fmt.Println(string(yamlData))
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"log/slog"
@@ -19,13 +20,26 @@ func UploadSFTP(filePath string, transfer config.ConfigEntry) (string, error) {
 	const retryDelay = 2 * time.Second
 	var lastErr error
 
+	// read and validate private key
+
+	key, err := os.ReadFile(transfer.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("unable to read private key: %w", err)
+	}
+
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse private key: %w", err)
+	}
+
+	// attempt file transfer {maxRetries} times
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		slog.Info("Attempting SFTP upload", "file", filePath, "attempt", attempt)
 
-		result, err := uploadOnce(filePath, transfer)
+		result, err := uploadOnce(filePath, transfer, signer)
 		if err == nil {
-			slog.Info("Upload succeeded", "file", filePath)
-			return result, nil
+			return result, nil // successful transfer
 		}
 
 		lastErr = err
@@ -41,46 +55,50 @@ func UploadSFTP(filePath string, transfer config.ConfigEntry) (string, error) {
 	return "", lastErr
 }
 
-func uploadOnce(filePath string, transfer config.ConfigEntry) (string, error) {
+func uploadOnce(filePath string, transfer config.ConfigEntry, signer ssh.Signer) (string, error) {
+
 	sshConfig := &ssh.ClientConfig{
 		User: transfer.Username,
 		Auth: []ssh.AuthMethod{
-			ssh.Password(transfer.Password),
+			ssh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // NOTE: Not for production
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // NOTE: Not safe for production
 		Timeout:         10 * time.Second,
 	}
 
 	addr := fmt.Sprintf("%s:%s", transfer.Server, transfer.Port)
 	conn, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return "", fmt.Errorf("SSH dial failed: %w", err)
+		return "failed", fmt.Errorf("SSH dial failed: %w", err)
 	}
 	defer conn.Close()
 
 	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
-		return "", fmt.Errorf("SFTP client creation failed: %w", err)
+		return "failed", fmt.Errorf("SFTP client creation failed: %w", err)
 	}
 	defer sftpClient.Close()
 
 	srcFile, err := os.Open(filePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open local file: %w", err)
+		return "failed", fmt.Errorf("failed to open local file: %w", err)
 	}
 	defer srcFile.Close()
 
-	remoteFileName := path.Base(filePath)
+	// filepath uses the local OS file type, but path always assumes linux.
+	// It's a good guess that a remote sftp target is unlikely to be Windows.
+
+	remoteFileName := filepath.Base(filePath)
 	dstPath := path.Join(transfer.RemotePath, remoteFileName)
 
 	dstFile, err := sftpClient.Create(dstPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create remote file: %w", err)
+		return "failed", fmt.Errorf("failed to create remote file: %w", err)
 	}
 	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return "", fmt.Errorf("file copy failed: %w", err)
+		return "failed", fmt.Errorf("file copy failed: %w", err)
 	}
 
 	return "success", nil

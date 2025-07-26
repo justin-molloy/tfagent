@@ -6,15 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/justin-molloy/tfagent/config"
+	"github.com/justin-molloy/tfagent/selector"
 	"github.com/justin-molloy/tfagent/static"
+	"github.com/justin-molloy/tfagent/watcher"
 )
 
 func main() {
@@ -23,28 +23,20 @@ func main() {
 
 	flags := config.ParseFlags()
 
-	// Load config
+	// Load config from config.yaml (default) or whatever file passed by flags.
 
 	cfg, err := config.LoadConfig(flags.ConfigFile)
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	// Override config with flags if different from defaults
-
-	if flags.LogFile != "logs/app.log" {
-		cfg.LogFile = flags.LogFile
+	if flags.PrtConf {
+		config.PrintConfig(cfg)
+		os.Exit(0)
 	}
-	if flags.LogLevel != "info" {
-		cfg.LogLevel = flags.LogLevel
-	}
-	if flags.LogToConsole {
-		cfg.LogToConsole = true
-	}
-
 	// Configure logging
 
-	logFile, err := config.SetupLogger(cfg.LogFile, cfg.LogLevel, cfg.LogToConsole)
+	logFile, err := config.SetupLogger(cfg, flags)
 	if err != nil {
 		log.Fatalf("Failed to set up logger: %v", err)
 	}
@@ -52,17 +44,27 @@ func main() {
 		defer logFile.Close()
 	}
 
-	// Add source directories to watch from config
+	// 1. Create new filesystem watcher
 
-	watcher, err := fsnotify.NewWatcher()
+	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		slog.Error(err.Error())
+		slog.Error("Failed to create watcher", "error", err)
+		os.Exit(1)
 	}
+	defer w.Close()
 
-	defer watcher.Close()
+	// Set up our tracking maps so that events can be safely handled.
+	// tracker is a map that records all filesystem events that are generated
+	// from the fsnotify module. This map is passed to the selector below.
+	tracker := watcher.NewEventTracker()
+
+	// watcher is the filesystem event watcher
+	watcher.StartWatcher(w, tracker)
+
+	// Add source directories (or files) to watch from config
 
 	for _, entry := range cfg.Transfers {
-		err = watcher.Add(entry.SourceDirectory)
+		err = w.Add(entry.SourceDirectory)
 		if err != nil {
 			slog.Error(err.Error())
 		} else {
@@ -70,55 +72,14 @@ func main() {
 		}
 	}
 
-	var processingSet sync.Map // safely tracks in-progress files
-	lastEvent := make(map[string]time.Time)
+	// queue for files to be processed
 	fileQueue := make(chan string, 100) // buffered to avoid blocking
 
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				slog.Info("Filesystem event", "Op", event.Op, "Name", event.Name)
+	// Selector views events that have been added to the tracker map
+	processingSet := sync.Map{}
+	selector.StartSelector(cfg.Delay, tracker, fileQueue, &processingSet)
 
-				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-					lastEvent[event.Name] = time.Now()
-				}
-
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				slog.Error(err.Error())
-			}
-		}
-	}()
-
-	// Polling loop to check for stable files
-
-	go func() {
-		for {
-			now := time.Now()
-			for file, t := range lastEvent {
-				delaySec := GetDelayForFile(file, cfg.Transfers, 2)
-
-				if now.Sub(t) > time.Duration(delaySec)*time.Second {
-					// Avoid enqueueing if already processing
-					if _, alreadyProcessing := processingSet.Load(file); !alreadyProcessing {
-						processingSet.Store(file, true)
-						slog.Info("Queued file after delay", "file", file)
-						fileQueue <- file
-					} else {
-						slog.Debug("Skipped enqueue; already processing", "file", file)
-					}
-					delete(lastEvent, file)
-				}
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}()
+	// Processing loop - read from the queue and process file.
 
 	go func() {
 		for file := range fileQueue {
@@ -163,29 +124,6 @@ func main() {
 	slog.Info("Program terminated by user", "signal", sig.String())
 	os.Exit(0)
 
-}
-
-func GetDelayForFile(filePath string, transfers []config.ConfigEntry, defaultDelay int) int {
-	fileAbs, err := filepath.Abs(filePath)
-	if err != nil {
-		slog.Warn(fmt.Sprintf("Could not resolve absolute path for: %s", filePath))
-		return defaultDelay
-	}
-
-	for _, entry := range transfers {
-		dirAbs, err := filepath.Abs(entry.SourceDirectory)
-		if err != nil {
-			slog.Warn(fmt.Sprintf("Could not resolve absolute path for config entry: %s", entry.SourceDirectory))
-			continue
-		}
-
-		if strings.HasPrefix(fileAbs, dirAbs+string(os.PathSeparator)) || fileAbs == dirAbs {
-			return *entry.Delay
-		}
-	}
-
-	slog.Warn(fmt.Sprintf("No matching SourceDirectory found for file: %s. Using default delay.", filePath))
-	return defaultDelay
 }
 
 func FindMatchingTransfer(file string, transfers []config.ConfigEntry) (*config.ConfigEntry, error) {
