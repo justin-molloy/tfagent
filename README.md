@@ -42,8 +42,8 @@ c:\windows\system32\sc.exe stop WINService
 
 c:\windows\system32\sc.exe query WINService
 ```
-[!NOTE]
-Powershell has a 'sc' cmdlet that is run instead of sc.exe if you don't use the full path.
+> [!NOTE]
+> Powershell has a 'sc' cmdlet that is run instead of sc.exe if you don't use the full path.
 
 ### Config
 
