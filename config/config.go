@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -144,4 +146,32 @@ func SetupLogger(cfg ConfigData, flags FlagOptions) (*os.File, error) {
 func PrintConfig(cfg ConfigData) {
 	yamlData, _ := yaml.Marshal(cfg)
 	fmt.Println(string(yamlData))
+}
+
+func GetConfigFile(appName string) (string, error) {
+	// Try to locate in same directory as executable. This is where it'll be
+	// if installed by hand or testing.
+
+	var localCfg string
+	var programCfg string
+
+	exePath, err := os.Executable()
+	if err == nil {
+		localCfg = filepath.Join(filepath.Dir(exePath), "config.yaml")
+		if _, err := os.Stat(localCfg); err == nil {
+			return localCfg, nil
+		}
+	}
+
+	// Check ProgramData - this is where it'll be if installed using
+	// package installer
+
+	programData := os.Getenv("ProgramData") // typically: C:\ProgramData
+	if programData != "" {
+		programCfg = filepath.Join(programData, appName, "config.yaml")
+		return programCfg, nil
+	}
+
+	msg := fmt.Sprintf("Config not found: %s, %s", localCfg, programCfg)
+	return "", errors.New(msg)
 }

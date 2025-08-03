@@ -18,6 +18,31 @@ The general workflow for this app is this:
 4. A separate goroutine executes the file transfer and reports status.
 5. Optional archiving of the file once the transfer is complete(not implemented yet).
 
+### Windows service
+You can manually install the app as a windows service by doing the following:
+
+```
+c:\windows\system32\sc.exe create TFAgent binPath="C:\path\to\exe\tfagent.exe"
+```
+The app expects the configuration file to be in either the local directory (with the exe), or in the
+%AppData%\TFAgent directory.
+
+To remove the service, use the followign command:
+```
+c:\windows\system32\sc.exe start WINService
+```
+
+If controlling the app via commandline or PowerShell, you can also star/stop/query the app:
+```
+c:\windows\system32\sc.exe start WINService
+
+c:\windows\system32\sc.exe stop WINService
+
+c:\windows\system32\sc.exe query WINService
+```
+[!NOTE]
+Powershell has a 'sc' cmdlet that is run instead of sc.exe if you don't use the full path.
+
 ### Config
 
 Sample config file is below.
