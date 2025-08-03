@@ -1,4 +1,4 @@
-package static
+package sendfile
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func UploadSFTP(filePath string, transfer config.ConfigEntry) (string, error) {
+func UploadSFTP(filePath string, transfer *config.ConfigEntry) (string, error) {
 	const maxRetries = 3
 	const retryDelay = 2 * time.Second
 	var lastErr error
@@ -55,7 +55,7 @@ func UploadSFTP(filePath string, transfer config.ConfigEntry) (string, error) {
 	return "", lastErr
 }
 
-func uploadOnce(filePath string, transfer config.ConfigEntry, signer ssh.Signer) (string, error) {
+func uploadOnce(filePath string, transfer *config.ConfigEntry, signer ssh.Signer) (string, error) {
 
 	sshConfig := &ssh.ClientConfig{
 		User: transfer.Username,

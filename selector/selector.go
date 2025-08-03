@@ -3,11 +3,10 @@ package selector
 
 import (
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/justin-molloy/tfagent/config"
-	watcher "github.com/justin-molloy/tfagent/tracker"
+	"github.com/justin-molloy/tfagent/tracker"
 	"github.com/justin-molloy/tfagent/utils"
 )
 
@@ -15,42 +14,43 @@ import (
 // filters and transfer eligibility will be determined here as well, using values from the
 // transfer configuration.
 
-func ProcessSnapshot(
+func StartSelector(
 	cfg *config.ConfigData,
-	tracker *watcher.EventTracker,
+	trackerMap *tracker.EventTracker,
 	fileQueue chan<- string,
-	processingSet *sync.Map,
+	processingSet *FileSelector,
 ) {
-	now := time.Now()
-	snapshot := tracker.GetSnapshot()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 
-	// TODO turn this one on only if snapshot isn't empty
-	//	if snapshot {
-	//		slog.Debug("Snapshot of lastEvents", "events", snapshot)
-	//	}
+	for range ticker.C {
+		now := time.Now()
+		snapshot := trackerMap.GetSnapshot()
 
-	for file, t := range snapshot {
-		if !hasDelayElapsed(t, now, cfg.Delay) {
-			continue
+		if len(snapshot) > 0 {
+			slog.Debug("Snapshot of lastEvents", "events", snapshot)
 		}
 
-		// utils are OS specific routines(just about everything else should work no matter
-		// which operating system it is run on, but these are filesystem operations.)
+		for file, t := range snapshot {
+			if !hasDelayElapsed(t, now, cfg.Delay) {
+				continue
+			}
 
-		if !utils.CheckReadyForProcessing(file) {
-			continue
+			if !utils.CheckReadyForProcessing(file) {
+				continue
+			}
+
+			if processingSet.AlreadyExists(file) {
+				slog.Debug("Skipped enqueue; already processing", "file", file)
+				trackerMap.Delete(file)
+				continue
+			}
+
+			processingSet.AddFile(file)
+			slog.Info("Queued file after delay", "file", file)
+			fileQueue <- file
+			trackerMap.Delete(file)
 		}
-
-		if _, alreadyProcessing := processingSet.Load(file); alreadyProcessing {
-			slog.Debug("Skipped enqueue; already processing", "file", file)
-			tracker.Delete(file)
-			continue
-		}
-
-		processingSet.Store(file, true)
-		slog.Info("Queued file after delay", "file", file)
-		fileQueue <- file
-		tracker.Delete(file)
 	}
 }
 

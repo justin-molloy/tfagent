@@ -14,9 +14,10 @@ import (
 )
 
 type ConfigData struct {
-	LogFile      string        `yaml:"logdest"`
+	LogFile      string        `yaml:"logfile"`
 	LogLevel     string        `yaml:"loglevel"`
 	LogToConsole bool          `yaml:"logtoconsole"`
+	Heartbeat    bool          `yaml:"service_heartbeat"`
 	Delay        int           `yaml:"delay"`
 	Transfers    []ConfigEntry `yaml:"transfers"`
 }
@@ -61,39 +62,36 @@ func ParseFlags() FlagOptions {
 	return flags
 }
 
-func LoadConfig(configFile string) (ConfigData, error) {
-
-	// Read yaml config into ConfigData
+func LoadConfig(configFile string) (*ConfigData, error) {
+	// Read YAML config into ConfigData
 	yamlConfig, err := os.ReadFile(configFile)
 	if err != nil {
-		return ConfigData{}, fmt.Errorf("can't read configuration file: %w", err)
+		return nil, fmt.Errorf("can't read configuration file: %w", err)
 	}
 
 	var cfg ConfigData
 	if err := yaml.Unmarshal(yamlConfig, &cfg); err != nil {
-		return ConfigData{}, fmt.Errorf("failed to parse YAML config: %w", err)
+		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
-	// This section sets some default values for individual transfers.
-	// Here we ensure all transfer entries have a minimum value set before returning.
-
+	// Set default values
 	defaultStreaming := false
 	for i := range cfg.Transfers {
 		if cfg.Transfers[i].Streaming == nil {
 			slog.Warn("Streaming value for " + cfg.Transfers[i].Name + " not set. Default is " + strconv.FormatBool(defaultStreaming))
 			cfg.Transfers[i].Streaming = &defaultStreaming
 		}
-
 	}
 
-	return cfg, err
+	return &cfg, nil // ✅ return pointer and nil error
 }
 
-func SetupLogger(cfg ConfigData, flags FlagOptions) (*os.File, error) {
+func SetupLogger(cfg *ConfigData, flags FlagOptions) (*os.File, error) {
 	var output *os.File
 	var err error
 
 	// Override config with flags if different from defaults
+	// TODO: add some better logic if cfg.LogFile is blank...
 
 	if cfg.LogFile == "" {
 		cfg.LogFile = flags.LogFile

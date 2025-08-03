@@ -1,3 +1,5 @@
+//go:build windows
+
 package service
 
 import (
@@ -5,22 +7,28 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/justin-molloy/tfagent/config"
+	"github.com/justin-molloy/tfagent/tracker"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 type TFAgentService struct {
-	Name string
+	Name    string
+	Config  *config.ConfigData
+	Tracker *tracker.EventTracker
 }
 
 func (m *TFAgentService) Execute(args []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
-	const accepted = svc.AcceptStop | svc.AcceptShutdown
 
 	s <- svc.Status{State: svc.StartPending}
 
-	go runWorker(s, m.Name)
+	// entry point to the file system tracker
 
-	s <- svc.Status{State: svc.Running, Accepts: accepted}
+	go tracker.StartTracker(m.Config, m.Tracker)
+	go runHeartbeat(s, m.Name, m.Config.Heartbeat)
+
+	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
 	slog.Info("Service started", "servicename", m.Name)
 
@@ -42,8 +50,8 @@ func (m *TFAgentService) Execute(args []string, r <-chan svc.ChangeRequest, s ch
 	}
 }
 
-func runWorker(statusChan chan<- svc.Status, serviceName string) {
-	ticker := time.NewTicker(10 * time.Second)
+func runHeartbeat(statusChan chan<- svc.Status, serviceName string, heartbeat bool) {
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -52,12 +60,13 @@ func runWorker(statusChan chan<- svc.Status, serviceName string) {
 		state, err := queryServiceStatus(serviceName)
 		if err != nil {
 			slog.Error("Failed to query service status", "servicename", serviceName, "error", err)
-		} else {
-			slog.Info("Service heartbeat", "servicename", serviceName, "state", state)
 		}
 
-		// Optional heartbeat update to SCM
-		statusChan <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+		if heartbeat {
+			slog.Info("Service heartbeat", "servicename", serviceName, "state", state)
+			// heartbeat update to SCM
+			statusChan <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"log/slog"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -10,60 +11,88 @@ import (
 	"github.com/justin-molloy/tfagent/config"
 )
 
-func StartWatcher(cfg *config.ConfigData, w *fsnotify.Watcher, et *EventTracker) {
-	go func() {
-		for {
-			select {
-			case event, ok := <-w.Events:
-				if !ok {
-					return
-				}
+// Set up our tracking maps so that events can be safely handled.
+// tracker is a map that records all filesystem events that are generated
+// from watcher(fsnotify). This map is available to the selector routine.
+// The tracker function does some basic tests to ensure that the event
+// is one we're interested in - eg. create/notify events, and that the file
+// meets the filter criteria specified in the config.
 
-				slog.Debug("Filesystem event", "Op", event.Op, "Name", event.Name)
+func StartTracker(cfg *config.ConfigData, trackerMap *EventTracker) {
+	slog.Info("File Tracker starting")
 
-				// Just a bit of cleanup. If a remove event is received and we've already
-				// added it to the processing list, ensure it is removed from the list.
-				// this could occur if an incoming file copy is stopped.
+	// Create new filesystem event watcher
 
-				if event.Op&fsnotify.Remove != 0 && et.AlreadyExists(event.Name) {
-					et.Delete(event.Name)
-					slog.Debug("Cleared tracker after Remove event", "Name", event.Name)
-				}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		slog.Error("Failed to create watcher", "error", err)
+		os.Exit(1)
+	}
+	defer w.Close()
 
-				// if event is not a write/create event, stop processing(continue)
-				if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+	// source directories from config are added to watcher
+
+	for _, entry := range cfg.Transfers {
+		err = w.Add(entry.SourceDirectory)
+		if err != nil {
+			slog.Error(err.Error())
+		} else {
+			slog.Info("Added Source Dir", "source", entry.SourceDirectory)
+		}
+	}
+
+	for {
+		select {
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+
+			slog.Debug("Filesystem event", "Op", event.Op, "Name", event.Name)
+
+			// Just a bit of cleanup. If a remove event is received and we've already
+			// added it to the processing list, ensure it is removed from the list.
+			// this could occur if an incoming file copy is stopped.
+
+			if event.Op&fsnotify.Remove != 0 && trackerMap.AlreadyExists(event.Name) {
+				trackerMap.Delete(event.Name)
+				slog.Debug("Cleared tracker after Remove event", "Name", event.Name)
+			}
+
+			// if event is not a write/create event, stop processing(continue)
+			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+				continue
+			}
+
+			// Match against all configured transfers
+			for _, entry := range cfg.Transfers {
+				tfMatch, err := FilterMatcher(event.Name, entry)
+				if err != nil {
+					slog.Warn("Failed to match transfer", "error", err, "Name", event.Name)
 					continue
 				}
 
-				// Match against all configured transfers
-				for _, entry := range cfg.Transfers {
-					tfMatch, err := FilterMatcher(event.Name, entry)
-					if err != nil {
-						slog.Warn("Failed to match transfer", "error", err, "Name", event.Name)
-						continue
-					}
-
-					if et.AlreadyExists(event.Name) {
-						slog.Debug("File already queued", "Name", event.Name)
-						continue
-					}
-					if tfMatch {
-						slog.Info("Matched and queued for processing", "Name", event.Name)
-						et.RecordEvent(event.Name)
-						break // Stop after first match
-					} else {
-						slog.Debug("No match", "Name", entry.Name, "File", event.Name)
-					}
+				if trackerMap.AlreadyExists(event.Name) {
+					slog.Debug("File already queued", "Name", event.Name)
+					continue
 				}
 
-			case err, ok := <-w.Errors:
-				if !ok {
-					return
+				if tfMatch {
+					slog.Info("Matched and queued for processing", "Name", event.Name)
+					trackerMap.RecordEvent(event.Name)
+					break // Stop after first match
+				} else {
+					slog.Debug("No match", "Name", entry.Name, "File", event.Name)
 				}
-				slog.Error("Watcher error", "error", err)
 			}
+
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			slog.Error("Watcher error", "error", err)
 		}
-	}()
+	}
 }
 
 func FilterMatcher(eventName string, entry config.ConfigEntry) (bool, error) {
