@@ -1,6 +1,8 @@
 # tfagent
-=========
+
 ## File transfer agent for windows
+
+![Build Status](https://github.com/justin-molloy/tfagent/actions/workflows/builder.yaml/badge.svg)
 
 ### Summary
 The tfagent is a utility that monitors directories for files, and when a new file is created or updated in the watched directories, it transfers the file to a specified remote (sftp) location. The config also has some options for archiving the file to a secondary directory for verification and retransmission if necessary.
