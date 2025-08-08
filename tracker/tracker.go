@@ -41,6 +41,8 @@ func StartTracker(cfg *config.ConfigData, trackerMap *EventTracker) {
 		}
 	}
 
+	// Close ready chan to signal that we’re ready to receive events
+
 	for {
 		select {
 		case event, ok := <-w.Events:

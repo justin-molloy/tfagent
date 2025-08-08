@@ -110,7 +110,6 @@ func SetupLogger(cfg *ConfigData, flags FlagOptions) (*os.File, error) {
 	}
 
 	// Convert log level string to slog.Level
-
 	var slogLevel slog.Level
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug":

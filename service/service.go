@@ -24,8 +24,8 @@ func (m *TFAgentService) Execute(args []string, r <-chan svc.ChangeRequest, s ch
 	s <- svc.Status{State: svc.StartPending}
 
 	// entry point to the file system tracker
-
 	go tracker.StartTracker(m.Config, m.Tracker)
+
 	go runHeartbeat(s, m.Name, m.Config.Heartbeat)
 
 	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}

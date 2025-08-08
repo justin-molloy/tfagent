@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// print config if required before wasting further cycles
+	// print config and exit if required before wasting further cycles
 
 	if flags.PrtConf {
 		config.PrintConfig(*cfg)

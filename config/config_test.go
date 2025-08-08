@@ -29,7 +29,7 @@ func TestLoadConfig_Success(t *testing.T) {
 	tmpFile := filepath.Join(tmpDir, "test_config.yaml")
 
 	content := `
-logdest: "/tmp/logs"
+logfile: "/tmp/logs"
 loglevel: "info"
 delay: 2
 transfers:
