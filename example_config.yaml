@@ -1,28 +1,33 @@
 # Global settings
 
-logdest: c:\data\code\testfolder\logs\logfile.log
-loglevel: debug
-delay: 1
-
-# Individual transfer definitions
+logfile: c:\logs\logfile.log
+loglevel: info
+service_heartbeat: true
 transfers:
-  - name: Result Files 
-    source_directory: c:\data\code\testfolder\tf1
+  - name: File Folder 1 
+    source_directory: c:\path_to_folder
     transfertype: sftp
-    filter:
     username: tfuser
-    privatekey: c:\data\code\testfolder\id_ed25519_test.priv
-    password: abcd1234
+    privatekey: c:\path_to_folder\private_key.priv
     server: 192.168.214.128
     port: 22
     remotepath: incoming
     streaming: false
     overwrite_dest: false
     action_on_success: archive
-    archive_dest: c:\data\code\testfolder\tf1\archive
-    filter: "\\.(jpg|png|gif)$"
+    action_on_fail: archive
+    archive_dest: c:\path_to_folder\archive
+    fail_dest: c:\path_to_folder\fail
+    filter: "\\.(txt|csv)$"
 
   - name: Log Files
-    source_directory: c:\data\code\testfolder\tf2
+    source_directory: c:\path_to_another_folder
+    transfertype: sftp
     destination: /path/to/destination2
-    streaming: True
+    username: tfuser
+    privatekey: c:\path_to_another_folder\private_key.priv
+    server: 192.168.214.128
+    port: 22
+    remotepath: incoming
+    streaming: false
+    filter: "\\.(jpg|png|gif)$"
