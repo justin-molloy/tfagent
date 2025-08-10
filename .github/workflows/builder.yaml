@@ -1,5 +1,5 @@
 
-name: initial-test-workflow
+name: test-runs
 
 on:
   push:

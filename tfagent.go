@@ -39,6 +39,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := config.ValidateConfig(cfg); err != nil {
+		slog.Error("Invalid configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// print config and exit if required before wasting further cycles
 
 	if flags.PrtConf {
@@ -87,14 +92,16 @@ func main() {
 	if isService {
 		slog.Info("Running as Windows Service", "isService", isService)
 		svc.Run(AppName, &service.TFAgentService{
-			Name:    AppName,
-			Config:  cfg,
-			Tracker: trackerMap})
+			Name:       AppName,
+			Config:     cfg,
+			Tracker:    trackerMap,
+			FileQueue:  fileQueue,
+			Processing: processingMap})
 		return
 	} else {
 		slog.Info("Running as standalone app outside of Windows Service Control Manager")
 		go tracker.StartTracker(cfg, trackerMap)
-		go selector.StartSelector(cfg, trackerMap, fileQueue, processingMap)
+		go selector.StartSelector(trackerMap, fileQueue, processingMap)
 		go processor.StartProcessor(cfg, fileQueue, processingMap)
 	}
 

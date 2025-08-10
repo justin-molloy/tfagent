@@ -19,7 +19,7 @@ import (
 // meets the filter criteria specified in the config.
 
 func StartTracker(cfg *config.ConfigData, trackerMap *EventTracker) {
-	slog.Info("File Tracker starting")
+	slog.Debug("File Tracker starting")
 
 	// Create new filesystem event watcher
 
@@ -37,7 +37,7 @@ func StartTracker(cfg *config.ConfigData, trackerMap *EventTracker) {
 		if err != nil {
 			slog.Error(err.Error())
 		} else {
-			slog.Info("Added Source Dir", "source", entry.SourceDirectory)
+			slog.Info("Tracking source directory", "source", entry.SourceDirectory, "name", entry.Name)
 		}
 	}
 

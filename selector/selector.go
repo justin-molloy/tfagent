@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/justin-molloy/tfagent/config"
 	"github.com/justin-molloy/tfagent/tracker"
 	"github.com/justin-molloy/tfagent/utils"
 )
@@ -15,7 +14,6 @@ import (
 // transfer configuration.
 
 func StartSelector(
-	cfg *config.ConfigData,
 	trackerMap *tracker.EventTracker,
 	fileQueue chan<- string,
 	processingSet *FileSelector,
@@ -31,8 +29,9 @@ func StartSelector(
 			slog.Debug("Snapshot of lastEvents", "events", snapshot)
 		}
 
+		// hasDelayElapsed - currently hardcoded to 1 second (may fix this later)
 		for file, t := range snapshot {
-			if !hasDelayElapsed(t, now, cfg.Delay) {
+			if !hasDelayElapsed(t, now, 1) {
 				continue
 			}
 

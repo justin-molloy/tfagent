@@ -18,7 +18,6 @@ type ConfigData struct {
 	LogLevel     string        `yaml:"loglevel"`
 	LogToConsole bool          `yaml:"logtoconsole"`
 	Heartbeat    bool          `yaml:"service_heartbeat"`
-	Delay        int           `yaml:"delay"`
 	Transfers    []ConfigEntry `yaml:"transfers"`
 }
 
@@ -35,7 +34,9 @@ type ConfigEntry struct {
 	Port            string `yaml:"port"`
 	Filter          string `yaml:"filter"`
 	ArchiveDest     string `yaml:"archive_dest"`
-	ActionOnSuccess string `yaml:"action_on_success"`
+	ActionOnSuccess string `yaml:"action_on_success"` //none, archive, delete
+	ActionOnFail    string `yaml:"action_on_fail"`    //none, archive, delete
+	FailDest        string `yaml:"fail_dest"`
 }
 
 type FlagOptions struct {
@@ -125,7 +126,8 @@ func SetupLogger(cfg *ConfigData, flags FlagOptions) (*os.File, error) {
 	}
 
 	handler := slog.NewTextHandler(output, &slog.HandlerOptions{
-		Level: slogLevel,
+		Level:     slogLevel,
+		AddSource: true,
 	})
 	logger := slog.New(handler)
 	slog.SetDefault(logger)

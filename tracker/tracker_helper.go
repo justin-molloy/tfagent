@@ -13,7 +13,7 @@ type EventTracker struct {
 }
 
 func NewEventTracker() *EventTracker {
-	slog.Debug("New Event Tracker")
+	slog.Debug("New Event Tracker map created")
 	return &EventTracker{
 		lastEvents: make(map[string]time.Time),
 	}
@@ -44,9 +44,9 @@ func (et *EventTracker) Delete(name string) {
 }
 
 func (et *EventTracker) AlreadyExists(name string) bool {
-	slog.Debug("AlreadyExistsEvent", "name", name, "event", et.lastEvents[name])
 	et.mu.Lock()
 	defer et.mu.Unlock()
 	_, exists := et.lastEvents[name]
+	slog.Debug("AlreadyExistsEvent", "name", name, "event", et.lastEvents[name], "exists", exists)
 	return exists
 }

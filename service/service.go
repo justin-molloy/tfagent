@@ -8,15 +8,20 @@ import (
 	"time"
 
 	"github.com/justin-molloy/tfagent/config"
+	"github.com/justin-molloy/tfagent/processor"
+	"github.com/justin-molloy/tfagent/selector"
 	"github.com/justin-molloy/tfagent/tracker"
+
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 type TFAgentService struct {
-	Name    string
-	Config  *config.ConfigData
-	Tracker *tracker.EventTracker
+	Name       string
+	Config     *config.ConfigData
+	Tracker    *tracker.EventTracker
+	FileQueue  chan string
+	Processing *selector.FileSelector // or whatever type NewFileSelector returns
 }
 
 func (m *TFAgentService) Execute(args []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
@@ -25,12 +30,14 @@ func (m *TFAgentService) Execute(args []string, r <-chan svc.ChangeRequest, s ch
 
 	// entry point to the file system tracker
 	go tracker.StartTracker(m.Config, m.Tracker)
+	go selector.StartSelector(m.Tracker, m.FileQueue, m.Processing)
+	go processor.StartProcessor(m.Config, m.FileQueue, m.Processing)
 
 	go runHeartbeat(s, m.Name, m.Config.Heartbeat)
 
 	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
-	slog.Info("Service started", "servicename", m.Name)
+	slog.Info("Windows Service started", "servicename", m.Name)
 
 	for {
 		req := <-r
