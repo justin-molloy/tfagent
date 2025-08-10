@@ -9,7 +9,8 @@ on:
 
 
 jobs:
-  build:
+  test:
+    if: ${{ !contains(join(github.event.commits.*.modified, ' '), '.md') }}
     runs-on: windows-latest
 
     steps:
