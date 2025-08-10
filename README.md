@@ -36,12 +36,12 @@ c:\windows\system32\sc.exe create TFAgent binPath="C:\path\to\exe\tfagent.exe"
 The app expects the configuration file to be in either the local directory (with the exe), or in the
 %AppData%\TFAgent directory.
 
-To remove the service, use the followign command:
+To remove the service, use the following command:
 ```
-c:\windows\system32\sc.exe start WINService
+c:\windows\system32\sc.exe delete WINService
 ```
 
-If controlling the app via commandline or PowerShell, you can also star/stop/query the app:
+If controlling the app via commandline or PowerShell, you can also start/stop/query the app:
 ```
 c:\windows\system32\sc.exe start WINService
 
